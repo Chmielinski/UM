@@ -11,7 +11,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.base import clone
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.preprocessing import LabelEncoder
-from scipy.stats import ttest_rel
+from scipy.stats import rankdata, ranksums
 import numpy as np
 import sys
 from sklearn.svm import SVR
@@ -24,7 +24,8 @@ from datetime import datetime
 
 alpha = .05
 vThreshold = 0.8
-wb = Workbook()
+n_splits = 2
+n_repeats = 5
 
 datasets_files = listdir('datasets')
 
@@ -40,6 +41,8 @@ classificators = [
     { 'number': '3', 'clf': MLPClassifier(random_state=100, max_iter=5000), 'name': 'MLPClassifier' },
     { 'number': '4', 'clf': GaussianNB(), 'name': 'GaussianNB' },
 ]
+
+results = np.zeros((len(feature_selection_methods), len(classificators), len(datasets_files), n_splits * n_repeats))
 
 def read_file(filename):
     path = 'datasets/' + filename
@@ -65,9 +68,9 @@ def get_features(X, y, fsm):
         return feature_scores
     elif fsm == '3':
         # SelectFromModel
-        clf = ExtraTreesClassifier(n_estimators=50)
+        clf = ExtraTreesClassifier(random_state=200)
         clf = clf.fit(X, y)
-        model = f_selection.SelectFromModel(clf, prefit=True)
+        model = f_selection.SelectFromModel(clf).fit(X, y)
         feature_scores = model.transform(X)
         return feature_scores
     else:
@@ -77,9 +80,10 @@ def get_score(data_train, classes_train, data_test, classes_test, clf):
     predicted = clf.predict(data_test)
     return clf.score(data_test, classes_test)
 
+wb = Workbook()
 
-for (id, filename) in enumerate(datasets_files):
-    print('\nFile ' + filename +  ' (' + str(id + 1) + '/' + str(len(datasets_files)) + ')')
+for (dataset_id, filename) in enumerate(datasets_files):
+    print('\nFile ' + filename +  ' (' + str(dataset_id + 1) + '/' + str(len(datasets_files)) + ')')
     sheet = wb.add_sheet(filename, cell_overwrite_ok=True)
     data, classes = read_file(filename)
     for (fsm_id, fsm) in enumerate(feature_selection_methods):
@@ -90,31 +94,66 @@ for (id, filename) in enumerate(datasets_files):
         fsm_sheet_position = fsm_id * len(classificators) * 3
         sheet.write(fsm_sheet_position, 0, fsm['name'])
 
-        rskf = RepeatedStratifiedKFold(n_splits=2, n_repeats=5, random_state=25)
-        results = np.zeros((len(classificators), 10))
+        rskf = RepeatedStratifiedKFold(n_splits=n_splits, n_repeats=n_repeats, random_state=25)
         
         for fold, (train, test) in enumerate(rskf.split(features, classes)):
             data_train, data_test = features[train], features[test]
             classes_train, classes_test = classes[train], classes[test]
 
             for (clf_id, clf) in enumerate(classificators):
-                results[clf_id, fold] = get_score(data_train, classes_train, data_test, classes_test, clf['clf'])
+                results[fsm_id, clf_id, dataset_id, fold] = get_score(data_train, classes_train, data_test, classes_test, clf['clf'])
                 sheet.write(1 + fsm_sheet_position + clf_id * 2, 0, clf['name'])
-                sheet.write(2 + fsm_sheet_position + clf_id * 2, fold, results[clf_id, fold])
+                sheet.write(2 + fsm_sheet_position + clf_id * 2, fold, results[fsm_id, clf_id, dataset_id, fold])
 
-print('\nsaving...')
+print('\nsaving results...')
 date_string = datetime.now().strftime("%Y%m%d_%H%M%S")
 wb.save('results_' + date_string + '.xls')
 print('Done!')
-#        test = ttest_rel(results[0], results[1])
-#        pval = test.pvalue
-#        T = test.statistic
-#        print 'p =', pval
-#        print 'T =', T
-#        print
-#        if pval > alpha:
-#            print('Result undetermined')
-#        elif T > 0:
-#            print selected_classificators[0]['name'], 'is better'
-#        else:
-#            print selected_classificators[1]['name'], 'is better'
+
+# [fsm, clf, dataset, fold]
+
+wb = Workbook()
+
+for (fsm_id, values) in enumerate(results):
+    p_value_sheet_offset = 8
+    sheet = wb.add_sheet(feature_selection_methods[fsm_id]['name'])
+    sheet.write(0, 0, 'w-statistic')
+    sheet.write(p_value_sheet_offset, 0, 'p-value')
+    sheet.write(2 * p_value_sheet_offset, 0, 'Advantage')
+    sheet.write(3 * p_value_sheet_offset, 0, 'Statistical significance')
+    for (clf_id, clf) in enumerate(classificators):
+        for i in range(4):
+            sheet.write(i * p_value_sheet_offset, clf_id + 1, clf['name'])
+            sheet.write(i * p_value_sheet_offset + clf_id + 1, 0, clf['name'])
+    
+    mean_scores = np.mean(values, axis=2).T
+    print(mean_scores)
+    ranks = []
+    for ms in mean_scores:
+        ranks.append(rankdata(ms).tolist())
+    ranks = np.array(ranks)
+    print(ranks)
+
+    w_stat = np.zeros((len(classificators), len(classificators)))
+    p_val = np.zeros((len(classificators), len(classificators)))
+    advantage = np.zeros((len(classificators), len(classificators)))
+    significance = np.zeros((len(classificators), len(classificators)))
+
+    for i in range(len(classificators)):
+        for j in range(len(classificators)):
+            w_stat[i, j], p_val[i, j] = ranksums(ranks.T[i], ranks.T[j])
+
+    advantage[w_stat > 0] = 1
+    significance[p_val <= alpha] = 1
+    
+    for i in range(len(classificators)):
+        for j in range(len(classificators)):
+            sheet.write(i + 1, j + 1, w_stat[i, j])
+            sheet.write(p_value_sheet_offset + i + 1, j + 1, p_val[i, j])
+            sheet.write(2 * p_value_sheet_offset + i + 1, j + 1, advantage[i, j])
+            sheet.write(3 * p_value_sheet_offset + i + 1, j + 1, significance[i, j])
+
+print('\nsaving test results...')
+date_string = datetime.now().strftime("%Y%m%d_%H%M%S")
+wb.save('test_' + date_string + '.xls')
+print('Done!')
