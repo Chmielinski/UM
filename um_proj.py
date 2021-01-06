@@ -42,7 +42,7 @@ classificators = [
     { 'number': '4', 'clf': GaussianNB(), 'name': 'GaussianNB' },
 ]
 
-results = np.zeros((len(feature_selection_methods), len(classificators), len(datasets_files), n_splits * n_repeats))
+results = np.zeros((len(classificators), len(feature_selection_methods), len(datasets_files), n_splits * n_repeats))
 
 def read_file(filename):
     path = 'datasets/' + filename
@@ -101,9 +101,9 @@ for (dataset_id, filename) in enumerate(datasets_files):
             classes_train, classes_test = classes[train], classes[test]
 
             for (clf_id, clf) in enumerate(classificators):
-                results[fsm_id, clf_id, dataset_id, fold] = get_score(data_train, classes_train, data_test, classes_test, clf['clf'])
+                results[clf_id, fsm_id, dataset_id, fold] = get_score(data_train, classes_train, data_test, classes_test, clf['clf'])
                 sheet.write(1 + fsm_sheet_position + clf_id * 2, 0, clf['name'])
-                sheet.write(2 + fsm_sheet_position + clf_id * 2, fold, results[fsm_id, clf_id, dataset_id, fold])
+                sheet.write(2 + fsm_sheet_position + clf_id * 2, fold, results[clf_id, fsm_id, dataset_id, fold])
 
 print('\nsaving results...')
 date_string = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -114,40 +114,41 @@ print('Done!')
 
 wb = Workbook()
 
-for (fsm_id, values) in enumerate(results):
+for (clf_id, values) in enumerate(results):
     p_value_sheet_offset = 8
-    sheet = wb.add_sheet(feature_selection_methods[fsm_id]['name'])
+    sheet = wb.add_sheet(classificators[clf_id]['name'])
     sheet.write(0, 0, 'w-statistic')
     sheet.write(p_value_sheet_offset, 0, 'p-value')
     sheet.write(2 * p_value_sheet_offset, 0, 'Advantage')
     sheet.write(3 * p_value_sheet_offset, 0, 'Statistical significance')
-    for (clf_id, clf) in enumerate(classificators):
+    for (fsm_id, fsm) in enumerate(feature_selection_methods):
         for i in range(4):
-            sheet.write(i * p_value_sheet_offset, clf_id + 1, clf['name'])
-            sheet.write(i * p_value_sheet_offset + clf_id + 1, 0, clf['name'])
+            sheet.write(i * p_value_sheet_offset, fsm_id + 1, fsm['name'])
+            sheet.write(i * p_value_sheet_offset + fsm_id + 1, 0, fsm['name'])
     
     mean_scores = np.mean(values, axis=2).T
     print(mean_scores)
     ranks = []
+
     for ms in mean_scores:
         ranks.append(rankdata(ms).tolist())
     ranks = np.array(ranks)
     print(ranks)
 
-    w_stat = np.zeros((len(classificators), len(classificators)))
-    p_val = np.zeros((len(classificators), len(classificators)))
-    advantage = np.zeros((len(classificators), len(classificators)))
-    significance = np.zeros((len(classificators), len(classificators)))
+    w_stat = np.zeros((len(feature_selection_methods), len(feature_selection_methods)))
+    p_val = np.zeros((len(feature_selection_methods), len(feature_selection_methods)))
+    advantage = np.zeros((len(feature_selection_methods), len(feature_selection_methods)))
+    significance = np.zeros((len(feature_selection_methods), len(feature_selection_methods)))
 
-    for i in range(len(classificators)):
-        for j in range(len(classificators)):
+    for i in range(len(feature_selection_methods)):
+        for j in range(len(feature_selection_methods)):
             w_stat[i, j], p_val[i, j] = ranksums(ranks.T[i], ranks.T[j])
 
     advantage[w_stat > 0] = 1
     significance[p_val <= alpha] = 1
     
-    for i in range(len(classificators)):
-        for j in range(len(classificators)):
+    for i in range(len(feature_selection_methods)):
+        for j in range(len(feature_selection_methods)):
             sheet.write(i + 1, j + 1, w_stat[i, j])
             sheet.write(p_value_sheet_offset + i + 1, j + 1, p_val[i, j])
             sheet.write(2 * p_value_sheet_offset + i + 1, j + 1, advantage[i, j])
