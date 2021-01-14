@@ -1,21 +1,14 @@
-import pandas as pd
 import sklearn.feature_selection as f_selection
 from sklearn.feature_selection import chi2
-from sklearn.model_selection import KFold, train_test_split, RepeatedKFold, cross_val_score, RepeatedStratifiedKFold
+from sklearn.model_selection import KFold, RepeatedStratifiedKFold
 from sklearn.linear_model import PassiveAggressiveClassifier
-from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier
-from sklearn.metrics import confusion_matrix
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.base import clone
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.preprocessing import LabelEncoder
 from scipy.stats import rankdata, ranksums
 import numpy as np
-import sys
-from sklearn.svm import SVR
-from numpy import genfromtxt
 import arff
 from os import listdir
 from xlwt import Workbook
